@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Master Clock Monitor</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; background:#111; color:#eee; }
+  header { padding:16px 20px; border-bottom:1px solid #333; }
+  h1 { font-size:18px; margin:0; font-weight:600; }
+  .sub { color:#999; font-size:12px; margin-top:4px; }
+  main { padding:20px; max-width:900px; margin:0 auto; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .card { background:#1c1c1c; border:1px solid #333; border-radius:10px; padding:14px 16px; }
+  .card .k { color:#999; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .card .v { font-size:24px; font-weight:600; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .card .u { color:#888; font-size:12px; }
+  .pos { color:#ff7b72; } .neg { color:#7ee787; }
+  canvas { width:100%; height:340px; background:#1c1c1c; border:1px solid #333; border-radius:10px; margin-top:16px; display:block; }
+  footer { color:#777; font-size:12px; margin-top:16px; }
+  a { color:#6cb6ff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Self Winding Clock — accuracy monitor</h1>
+  <div class="sub">Positive offset = clock is fast. Raw data: <a href="log.csv">log.csv</a><br><span style="color:#777">Mirror of a home ESP8266 monitor — data pushed every ~15 min, not live.</span></div>
+</header>
+<main>
+  <div class="cards">
+    <div class="card"><div class="k">Current offset</div><div class="v" id="cur">—</div><div class="u">ms from top of hour</div></div>
+    <div class="card"><div class="k">Drift (24 h fit)</div><div class="v" id="d24">—</div><div class="u">seconds / day</div></div>
+    <div class="card"><div class="k">Drift (7 d fit)</div><div class="v" id="d7">—</div><div class="u">seconds / day</div></div>
+    <div class="card"><div class="k">Records</div><div class="v" id="n">—</div><div class="u">last pulse <span id="last">—</span></div></div>
+  </div>
+  <canvas id="chart"></canvas>
+  <footer id="foot">loading…</footer>
+</main>
+<script>
+const MS_HOUR = 3600000;
+
+function parseCSV(text){
+  const rows = [];
+  const lines = text.trim().split("\n");
+  for (let i=1;i<lines.length;i++){            // skip header
+    const p = lines[i].split(",");
+    if (p.length < 3) continue;
+    const t = Date.parse(p[0]);                // ISO Z -> epoch ms
+    const off = parseFloat(p[1]);
+    const w = parseFloat(p[2]);
+    if (!isNaN(t) && !isNaN(off)) rows.push({t, off, w});
+  }
+  rows.sort((a,b)=>a.t-b.t);
+  return rows;
+}
+
+// Least-squares slope of offset(ms) vs time(ms). Returns seconds/day, or null.
+function driftSecPerDay(rows, sinceMs){
+  const pts = rows.filter(r=>r.t>=sinceMs);
+  if (pts.length < 2) return null;
+  let n=pts.length, sx=0, sy=0, sxx=0, sxy=0;
+  const x0 = pts[0].t;                          // shift for numeric stability
+  for (const r of pts){ const x=r.t-x0, y=r.off; sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; }
+  const den = n*sxx - sx*sx;
+  if (den === 0) return null;
+  const slope = (n*sxy - sx*sy)/den;            // ms offset per ms time
+  return slope * 86400;                         // -> seconds per day
+}
+
+function fmt(v, dp=1){ return (v>=0?"+":"") + v.toFixed(dp); }
+function setCard(id, v, dp){
+  const el = document.getElementById(id);
+  if (v===null){ el.textContent="—"; el.className="v"; return; }
+  el.textContent = fmt(v, dp);
+  el.className = "v " + (v>=0?"pos":"neg");
+}
+
+function drawChart(rows){
+  const c = document.getElementById("chart");
+  const dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight;
+  c.width = W*dpr; c.height = H*dpr;
+  const g = c.getContext("2d"); g.scale(dpr,dpr);
+  g.clearRect(0,0,W,H);
+  if (rows.length < 2){ g.fillStyle="#888"; g.fillText("not enough data yet",12,20); return; }
+
+  const pad = {l:52, r:12, t:14, b:26};
+  const x0 = rows[0].t, x1 = rows[rows.length-1].t;
+  let y0 = Math.min(...rows.map(r=>r.off)), y1 = Math.max(...rows.map(r=>r.off));
+  if (y0===y1){ y0-=1; y1+=1; }
+  const my = (y1-y0)*0.1; y0-=my; y1+=my;       // 10% headroom
+  const px = t => pad.l + (t-x0)/(x1-x0||1)*(W-pad.l-pad.r);
+  const py = v => pad.t + (1-(v-y0)/(y1-y0))*(H-pad.t-pad.b);
+
+  // grid + y labels
+  g.strokeStyle="#333"; g.fillStyle="#999"; g.font="11px system-ui"; g.textBaseline="middle";
+  for (let i=0;i<=4;i++){
+    const v = y0 + (y1-y0)*i/4, y = py(v);
+    g.strokeStyle="#2a2a2a"; g.beginPath(); g.moveTo(pad.l,y); g.lineTo(W-pad.r,y); g.stroke();
+    g.fillText(v.toFixed(0), 6, y);
+  }
+  // zero line
+  if (y0<0 && y1>0){ const yz=py(0); g.strokeStyle="#555"; g.setLineDash([4,4]);
+    g.beginPath(); g.moveTo(pad.l,yz); g.lineTo(W-pad.r,yz); g.stroke(); g.setLineDash([]); }
+  // x labels (start / end)
+  g.textBaseline="top";
+  g.fillText(new Date(x0).toLocaleString(), pad.l, H-pad.b+6);
+  const endTxt = new Date(x1).toLocaleString();
+  g.fillText(endTxt, W-pad.r-g.measureText(endTxt).width, H-pad.b+6);
+
+  // series
+  g.strokeStyle="#6cb6ff"; g.lineWidth=1.5; g.beginPath();
+  rows.forEach((r,i)=>{ const X=px(r.t), Y=py(r.off); i?g.lineTo(X,Y):g.moveTo(X,Y); });
+  g.stroke();
+  g.fillStyle="#6cb6ff";
+  for (const r of rows){ g.beginPath(); g.arc(px(r.t),py(r.off),2,0,7); g.fill(); }
+}
+
+async function refresh(){
+  try{
+    const r = await fetch("log.csv?_=" + Date.now(), {cache:"no-store"});
+    const rows = parseCSV(await r.text());
+    const now = Date.now();
+    document.getElementById("n").textContent = rows.length;
+    if (rows.length){
+      const last = rows[rows.length-1];
+      setCard("cur", last.off, 0);
+      document.getElementById("last").textContent = new Date(last.t).toLocaleString();
+    }
+    setCard("d24", driftSecPerDay(rows, now-24*MS_HOUR), 2);
+    setCard("d7",  driftSecPerDay(rows, now-7*24*MS_HOUR), 2);
+    drawChart(rows);
+    document.getElementById("foot").textContent = "updated " + new Date().toLocaleTimeString();
+  }catch(e){
+    document.getElementById("foot").textContent = "fetch error: " + e;
+  }
+}
+window.addEventListener("resize", refresh);
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>
