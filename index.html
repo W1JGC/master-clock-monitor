@@ -36,13 +36,6 @@ footer{font-size:13.5px;color:#666;margin-top:26px;border-top:1px solid var(--ru
 <h1>Self Winding Clock Co. Master Clock — Accuracy Monitor</h1>
 <div class="byline">W1JGC &middot; telemetry from a home ESP8266 pulse logger</div>
 
-<p class="abstract">This page records the hourly synchronizing-contact pulse of a Self Winding
-Clock Co. master clock, timestamped against NTP-disciplined time. For each pulse the offset
-from the true top of the hour is logged in milliseconds; the slope of that offset over time
-is the clock&rsquo;s drift rate. <strong>Positive offset = fast</strong> (the contact fires
-early); negative = slow. Figures are mirrored from the monitor roughly every fifteen minutes
-and are not live.</p>
-
 <h2>Current reading</h2>
 <table class="read">
   <tr><th>Current offset</th><td><span id="cur">&mdash;</span> <span class="u">ms from top of hour</span></td></tr>
