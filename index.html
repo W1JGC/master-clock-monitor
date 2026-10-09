@@ -20,7 +20,6 @@ table.read{border-collapse:collapse;font-size:16px;margin:10px 0;}
 table.read th{text-align:left;font-weight:normal;color:var(--mut);padding:3px 18px 3px 0;vertical-align:top;}
 table.read td{padding:3px 0;font-variant-numeric:tabular-nums;}
 table.read td .u{color:#5a5a5a;font-size:14px;}
-.pos{color:var(--fr);} .neg{color:var(--pd);}
 figure{margin:18px 0;}
 figure canvas{width:100%;height:320px;border:1px solid var(--fig);background:#fff;padding:3px;display:block;}
 figcaption{font-size:14.5px;line-height:1.5;color:#262626;margin-top:7px;}
@@ -93,9 +92,8 @@ function driftSecPerDay(rows, sinceMs){
 function fmt(v, dp){ return (v>=0?"+":"") + v.toFixed(dp); }
 function setVal(id, v, dp){
   const el = document.getElementById(id);
-  if (v===null){ el.textContent="—"; el.className=""; return; }
+  if (v===null){ el.textContent="—"; return; }
   el.textContent = fmt(v, dp);
-  el.className = v>=0 ? "pos" : "neg";
 }
 
 function drawChart(rows){
