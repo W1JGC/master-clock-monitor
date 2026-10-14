@@ -78,6 +78,20 @@ function parseCSV(text){
   return rows;
 }
 
+// Adjusting the clock (turning the nut with a pause, or setting the hands)
+// produces a multi-second STEP in the offset. Normal hour-to-hour change is
+// well under a second, so split the series wherever the offset jumps more than
+// BREAK_MS and keep only the latest run — otherwise one old step crushes the
+// whole chart scale and corrupts the drift fit.
+const BREAK_MS = 2000;
+function latestSegment(rows){
+  let start = 0;
+  for (let i=1;i<rows.length;i++){
+    if (Math.abs(rows[i].off - rows[i-1].off) > BREAK_MS) start = i;
+  }
+  return rows.slice(start);
+}
+
 function driftSecPerDay(rows, sinceMs){
   const pts = rows.filter(r=>r.t>=sinceMs);
   if (pts.length < 2) return null;
@@ -139,17 +153,21 @@ async function refresh(){
   try{
     const r = await fetch("log.csv?_=" + Date.now(), {cache:"no-store"});
     const rows = parseCSV(await r.text());
+    const seg = latestSegment(rows);   // current run since the last adjustment
     const now = Date.now();
     document.getElementById("n").textContent = rows.length;
-    if (rows.length){
-      const last = rows[rows.length-1];
+    if (seg.length){
+      const last = seg[seg.length-1];
       setVal("cur", last.off, 0);
       document.getElementById("last").textContent = new Date(last.t).toLocaleString();
     }
-    setVal("d24", driftSecPerDay(rows, now-24*MS_HOUR), 2);
-    setVal("d7",  driftSecPerDay(rows, now-7*24*MS_HOUR), 2);
-    drawChart(rows);
-    document.getElementById("foot").textContent = "Updated " + new Date().toLocaleString() + ".";
+    // Drift fit is per-segment: a fit spanning an adjustment step is meaningless.
+    setVal("d24", driftSecPerDay(seg, now-24*MS_HOUR), 2);
+    setVal("d7",  driftSecPerDay(seg, now-7*24*MS_HOUR), 2);
+    drawChart(seg);
+    const hidden = rows.length - seg.length;
+    document.getElementById("foot").textContent = "Updated " + new Date().toLocaleString() + "."
+      + (hidden>0 ? "  Chart & drift show the current run since the last adjustment (" + hidden + " earlier readings hidden)." : "");
   }catch(e){
     document.getElementById("foot").textContent = "Fetch error: " + e;
   }
