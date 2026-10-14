@@ -137,16 +137,21 @@ function drawChart(rows){
   }
   if (y0<0 && y1>0){ const yz=py(0); g.strokeStyle=C.zero; g.setLineDash([4,3]);
     g.beginPath(); g.moveTo(pad.l,yz); g.lineTo(W-pad.r,yz); g.stroke(); g.setLineDash([]); }
+  // Ticks at round CLOCK hours (local), short labels like "6p"; the date is
+  // shown only on the first tick and whenever the day rolls over.
   g.textBaseline="top";
-  const fmtT = ms => { const d=new Date(ms); let h=d.getHours(); const ap=h<12?"AM":"PM";
-    h=h%12||12; const mm=String(d.getMinutes()).padStart(2,"0");
-    return (d.getMonth()+1)+"/"+d.getDate()+" "+h+":"+mm+" "+ap; };
-  const NT = W < 480 ? 2 : 4;                 // fewer ticks on narrow (phone) screens
-  for (let i=0;i<=NT;i++){
-    const t = x0 + (x1-x0)*i/NT, X = px(t);
+  const HR=3600000, span=x1-x0, off=new Date(x0).getTimezoneOffset()*60000;
+  const steps=[HR,2*HR,3*HR,6*HR,12*HR,24*HR,48*HR];
+  const step=steps.find(s=>span/s <= (W<480?4:6)) || 48*HR;
+  const fmtH=d=>{const h=d.getHours(); return (h%12||12)+(h<12?"a":"p");};
+  let prevDay=null;
+  for (let t=Math.ceil((x0-off)/step)*step+off; t<=x1; t+=step){
+    const X=px(t), d=new Date(t);
     g.strokeStyle=C.rule; g.beginPath(); g.moveTo(X,H-pad.b); g.lineTo(X,H-pad.b+3); g.stroke();
-    const txt = fmtT(t); let tx = X - g.measureText(txt).width/2;
-    tx = Math.max(pad.l, Math.min(tx, W-pad.r-g.measureText(txt).width));   // keep inside frame
+    const day=(d.getMonth()+1)+"/"+d.getDate();
+    let txt=fmtH(d); if(day!==prevDay){txt=day+" "+txt; prevDay=day;}
+    let tx=X-g.measureText(txt).width/2;
+    tx=Math.max(pad.l, Math.min(tx, W-pad.r-g.measureText(txt).width));
     g.fillStyle=C.lab; g.fillText(txt, tx, H-pad.b+5);
   }
 
