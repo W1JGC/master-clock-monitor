@@ -68,6 +68,10 @@ function parseCSV(text){
     if (p.length < 3) continue;
     const t = Date.parse(p[0]);
     const off = parseFloat(p[1]);
+    const w = parseFloat(p[2]);
+    // Real sync pulses are a ~1 s contact closure (~1066 ms). Sub-second
+    // captures are electrical noise spikes, not the hourly contact — drop them.
+    if (!(w >= 500)) continue;
     if (!isNaN(t) && !isNaN(off)) rows.push({t, off});
   }
   rows.sort((a,b)=>a.t-b.t);
