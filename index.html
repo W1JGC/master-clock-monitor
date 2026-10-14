@@ -36,10 +36,10 @@ footer{font-size:13.5px;color:#666;margin-top:26px;border-top:1px solid var(--ru
 
 <h2>Current reading</h2>
 <table class="read">
-  <tr><th>Current offset</th><td><span id="cur">&mdash;</span> <span class="u">ms from top of hour</span></td></tr>
+  <tr><th>Current offset</th><td><span id="cur">&mdash;</span> <span class="u">(hands vs. true time)</span></td></tr>
   <tr><th>Drift (24&nbsp;h fit)</th><td><span id="d24">&mdash;</span> <span class="u">seconds / day</span></td></tr>
   <tr><th>Drift (7&nbsp;d fit)</th><td><span id="d7">&mdash;</span> <span class="u">seconds / day</span></td></tr>
-  <tr><th>Pulses recorded</th><td><span id="n">&mdash;</span></td></tr>
+  <tr><th>Pulses</th><td><span id="n">&mdash;</span></td></tr>
   <tr><th>Last pulse</th><td><span id="last">&mdash;</span></td></tr>
 </table>
 
@@ -91,9 +91,13 @@ function latestSegment(rows){
   return rows.slice(start);
 }
 
-function driftSecPerDay(rows, sinceMs){
+function driftSecPerDay(rows, sinceMs, windowMs){
   const pts = rows.filter(r=>r.t>=sinceMs);
   if (pts.length < 2) return null;
+  // A "24 h"/"7 d" fit only means something once that window is actually filled.
+  // Otherwise it's the same short run wearing a misleading label, and one early
+  // point (e.g. the post-adjustment transient) swings it — show "—" instead.
+  if (windowMs && (pts[pts.length-1].t - pts[0].t) < 0.6*windowMs) return null;
   let n=pts.length, sx=0, sy=0, sxx=0, sxy=0;
   const x0 = pts[0].t;
   for (const r of pts){ const x=r.t-x0, y=r.off; sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; }
@@ -104,6 +108,12 @@ function driftSecPerDay(rows, sinceMs){
 }
 
 function fmt(v, dp){ return (v>=0?"+":"") + v.toFixed(dp); }
+// Position offset in readable form: +ve = pulse early = clock ahead; -ve = behind.
+function fmtOffset(ms){
+  const ahead = ms > 0;
+  let s = Math.abs(ms)/1000; const m = Math.floor(s/60); s -= m*60;
+  return (m>0 ? m+" m " : "") + s.toFixed(1) + " s " + (ahead ? "ahead" : "behind");
+}
 function setVal(id, v, dp){
   const el = document.getElementById(id);
   if (v===null){ el.textContent="—"; return; }
@@ -167,15 +177,16 @@ async function refresh(){
     const rows = parseCSV(await r.text());
     const seg = latestSegment(rows);   // current run since the last adjustment
     const now = Date.now();
-    document.getElementById("n").textContent = rows.length;
+    document.getElementById("n").textContent =
+      seg.length + " this run" + (rows.length>seg.length ? " · " + rows.length + " total" : "");
     if (seg.length){
       const last = seg[seg.length-1];
-      setVal("cur", last.off, 0);
+      document.getElementById("cur").textContent = fmtOffset(last.off);
       document.getElementById("last").textContent = new Date(last.t).toLocaleString();
     }
-    // Drift fit is per-segment: a fit spanning an adjustment step is meaningless.
-    setVal("d24", driftSecPerDay(seg, now-24*MS_HOUR), 2);
-    setVal("d7",  driftSecPerDay(seg, now-7*24*MS_HOUR), 2);
+    // Drift fit is per-segment, and each fit only shows once its window is filled.
+    setVal("d24", driftSecPerDay(seg, now-24*MS_HOUR, 24*MS_HOUR), 2);
+    setVal("d7",  driftSecPerDay(seg, now-7*24*MS_HOUR, 7*24*MS_HOUR), 2);
     drawChart(seg);
     const hidden = rows.length - seg.length;
     document.getElementById("foot").textContent = "Updated " + new Date().toLocaleString() + "."
